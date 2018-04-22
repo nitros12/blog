@@ -72,11 +72,6 @@ from types import coroutine
 from dataclasses import dataclass
 
 
-class Process:
-    async def process(self):
-        pass
-
-
 @dataclass
 class EventObject:
     coro: coroutine  # the running coroutine

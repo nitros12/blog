@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <meta name="viewport" content="width=device-width" />
+        <title>A compiler blog</title>
+        <link rel="stylesheet" type="text/css" href="../css/style.css" />
+    </head>
+    <body>
+      <div class="highbar">&nbsp;</div>
+        <div id="header">
+          <div class="box">
+            <div id="logo" class="name">
+              <h2><a href="../">Compilers and stuff</a></h2>
+            </div>
+            <div id="navigation" class="pageslinks">
+              <nav class="menuNav">
+                <div class="menuItems">
+                <a href="../" class="posts/2017-11-12-using-coroutines-to-abstract-message-passing.md">Home</a>
+                <a href="../archive.html" class="posts/2017-11-12-using-coroutines-to-abstract-message-passing.md">Archive</a>
+                </div>
+              </nav>
+            </div>
+        </div>
+        </div>
+        <div class="container-gallery">
+        <div id="content" class="inside">
+            <div class="info">
+    Posted on November 12, 2017
+    
+</div>
+
+<p>One of the many good features of python is it’s native support for coroutines, generalised functions that can be paused and resumed, allowing objects to be passed between the coroutine and whoever is running them when at the time.</p>
+<p>The most widely used place for Python’s coroutines currently is in asyncio frameworks, namely the standard library module: AsyncIO, <a href="https://github.com/python-trio/trio">Trio</a> and <a href="https://github.com/dabeaz/curio">curio</a>. These use python coroutines to allow the user to write code that requires IO resources that may not be available at some point when their code runs, but will be in the future. Without coroutine functions the alternative to this is promises, where an IO request has a function attached that will run when the IO has completed, however this approach leads to code becoming deeply nested and hard to work with.</p>
+<p>Coroutines fix this by allowing the function to be paused whenever an IO request is made, the writer of the coroutine doesn’t have to know that the function will be paused and can write their function as if the IO resource magically becomes available as soon as requested, they only need to insert the extra <code>await</code> keyword to retrieve the results of other coroutines.</p>
+<p>An example of a ‘blocking’ non async function:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb1-1" data-line-number="1"><span class="kw">def</span> make_request(url):</a>
+<a class="sourceLine" id="cb1-2" data-line-number="2">    result <span class="op">=</span> my_http_lib.get(url)</a>
+<a class="sourceLine" id="cb1-3" data-line-number="3">    <span class="cf">return</span> result[<span class="st">&quot;data&quot;</span>][<span class="st">&quot;some_value&quot;</span>]</a></code></pre></div>
+<p>This could be rewritten using promises to get:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb2-1" data-line-number="1"><span class="kw">def</span> make_request(url):</a>
+<a class="sourceLine" id="cb2-2" data-line-number="2">    <span class="cf">return</span> my_http_lib.get(url).then(<span class="kw">lambda</span> r: r[<span class="st">&quot;data&quot;</span>][<span class="st">&quot;some_value&quot;</span>])</a></code></pre></div>
+<p>But that leads to messy code happening very quickly, instead async functions the following could be written:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb3-1" data-line-number="1"><span class="cf">async</span> <span class="kw">def</span> make_request(url):</a>
+<a class="sourceLine" id="cb3-2" data-line-number="2">    result <span class="op">=</span> <span class="cf">await</span> my_async_http_lib.get(url)</a>
+<a class="sourceLine" id="cb3-3" data-line-number="3">    <span class="cf">return</span> result[<span class="st">&quot;data&quot;</span>][<span class="st">&quot;some_value&quot;</span>]</a></code></pre></div>
+<p>Which as you can see, is practically identical in structure to the blocking version.</p>
+<p>Asynchronous IO isn’t the only problem that can be solved using coroutines, I am now going to show how you can use coroutines to write a program that can resolve references written in any order.</p>
+<p>First, we need an object to signal actions to the event loop:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb4-1" data-line-number="1"><span class="im">from</span> enum <span class="im">import</span> Enum, auto</a>
+<a class="sourceLine" id="cb4-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb4-3" data-line-number="3"><span class="kw">class</span> RequestType(Enum):</a>
+<a class="sourceLine" id="cb4-4" data-line-number="4">    set_var <span class="op">=</span> auto()</a>
+<a class="sourceLine" id="cb4-5" data-line-number="5">    get_var <span class="op">=</span> auto()</a></code></pre></div>
+<p>We’ll use tuples of a request and arguemtns to signal to the event loop what we want performing.</p>
+<p>Then we need an event loop</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb5-1" data-line-number="1"><span class="im">from</span> types <span class="im">import</span> coroutine</a>
+<a class="sourceLine" id="cb5-2" data-line-number="2"><span class="im">from</span> dataclasses <span class="im">import</span> dataclass</a>
+<a class="sourceLine" id="cb5-3" data-line-number="3"></a>
+<a class="sourceLine" id="cb5-4" data-line-number="4"></a>
+<a class="sourceLine" id="cb5-5" data-line-number="5"><span class="at">@dataclass</span></a>
+<a class="sourceLine" id="cb5-6" data-line-number="6"><span class="kw">class</span> EventObject:</a>
+<a class="sourceLine" id="cb5-7" data-line-number="7">    coro: coroutine  <span class="co"># the running coroutine</span></a>
+<a class="sourceLine" id="cb5-8" data-line-number="8">    response: <span class="bu">object</span> <span class="op">=</span> <span class="va">None</span>  <span class="co"># the value to send to the object</span></a>
+<a class="sourceLine" id="cb5-9" data-line-number="9">       </a>
+<a class="sourceLine" id="cb5-10" data-line-number="10"></a>
+<a class="sourceLine" id="cb5-11" data-line-number="11"><span class="kw">class</span> ELoop:</a>
+<a class="sourceLine" id="cb5-12" data-line-number="12">    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>):</a>
+<a class="sourceLine" id="cb5-13" data-line-number="13">        <span class="va">self</span>.waiting <span class="op">=</span> {}</a>
+<a class="sourceLine" id="cb5-14" data-line-number="14">        <span class="va">self</span>.queue <span class="op">=</span> []</a>
+<a class="sourceLine" id="cb5-15" data-line-number="15">        <span class="va">self</span>.namespace <span class="op">=</span> {}</a>
+<a class="sourceLine" id="cb5-16" data-line-number="16">        </a>
+<a class="sourceLine" id="cb5-17" data-line-number="17">    <span class="kw">def</span> sleep(<span class="va">self</span>, obj, name):</a>
+<a class="sourceLine" id="cb5-18" data-line-number="18">        <span class="co"># multiple coros may wait on the same name, so store in a list</span></a>
+<a class="sourceLine" id="cb5-19" data-line-number="19">        also_waiting <span class="op">=</span> <span class="va">self</span>.waiting.setdefault(name, [])</a>
+<a class="sourceLine" id="cb5-20" data-line-number="20">        also_waiting.append(obj)</a>
+<a class="sourceLine" id="cb5-21" data-line-number="21">        </a>
+<a class="sourceLine" id="cb5-22" data-line-number="22">    <span class="kw">def</span> run_once(<span class="va">self</span>):</a>
+<a class="sourceLine" id="cb5-23" data-line-number="23">        obj <span class="op">=</span> <span class="va">self</span>.queue.pop()</a>
+<a class="sourceLine" id="cb5-24" data-line-number="24">        </a>
+<a class="sourceLine" id="cb5-25" data-line-number="25">        <span class="cf">while</span> <span class="va">True</span>:</a>
+<a class="sourceLine" id="cb5-26" data-line-number="26">            <span class="cf">try</span>:</a>
+<a class="sourceLine" id="cb5-27" data-line-number="27">                task, <span class="op">*</span>args <span class="op">=</span> obj.coro.send(obj.response)</a>
+<a class="sourceLine" id="cb5-28" data-line-number="28">                obj.response <span class="op">=</span> <span class="va">None</span>  <span class="co"># reset to none after sending</span></a>
+<a class="sourceLine" id="cb5-29" data-line-number="29">            <span class="cf">except</span> <span class="pp">StopIteration</span>:</a>
+<a class="sourceLine" id="cb5-30" data-line-number="30">                <span class="cf">return</span></a>
+<a class="sourceLine" id="cb5-31" data-line-number="31">                </a>
+<a class="sourceLine" id="cb5-32" data-line-number="32">            <span class="cf">if</span> task <span class="kw">is</span> RequestType.set_var:</a>
+<a class="sourceLine" id="cb5-33" data-line-number="33">                name, value <span class="op">=</span> args</a>
+<a class="sourceLine" id="cb5-34" data-line-number="34">                <span class="va">self</span>.namespace[name] <span class="op">=</span> value</a>
+<a class="sourceLine" id="cb5-35" data-line-number="35">            <span class="cf">elif</span> task <span class="kw">is</span> RequestType.get_var:</a>
+<a class="sourceLine" id="cb5-36" data-line-number="36">                <span class="co"># see if we know the name, if we do: set the value to send and</span></a>
+<a class="sourceLine" id="cb5-37" data-line-number="37">                <span class="co"># continue</span></a>
+<a class="sourceLine" id="cb5-38" data-line-number="38">                name <span class="op">=</span> args[<span class="dv">0</span>]</a>
+<a class="sourceLine" id="cb5-39" data-line-number="39">                <span class="cf">if</span> name <span class="kw">in</span> <span class="va">self</span>.namespace:</a>
+<a class="sourceLine" id="cb5-40" data-line-number="40">                    obj.response <span class="op">=</span> <span class="va">self</span>.namespace[name]</a>
+<a class="sourceLine" id="cb5-41" data-line-number="41">                    <span class="cf">continue</span></a>
+<a class="sourceLine" id="cb5-42" data-line-number="42">            </a>
+<a class="sourceLine" id="cb5-43" data-line-number="43">                <span class="co"># if we reached here, the name isn't known yet, put the coro to sleep</span></a>
+<a class="sourceLine" id="cb5-44" data-line-number="44">                <span class="va">self</span>.sleep(obj, name)</a>
+<a class="sourceLine" id="cb5-45" data-line-number="45">                <span class="cf">return</span></a>
+<a class="sourceLine" id="cb5-46" data-line-number="46">            <span class="cf">else</span>:</a>
+<a class="sourceLine" id="cb5-47" data-line-number="47">                <span class="co"># throw an exception to the coroutine</span></a>
+<a class="sourceLine" id="cb5-48" data-line-number="48">                obj.coro.throw(<span class="pp">ValueError</span>(<span class="st">&quot;Invalid value yielded to loop&quot;</span>))</a>
+<a class="sourceLine" id="cb5-49" data-line-number="49">    </a>
+<a class="sourceLine" id="cb5-50" data-line-number="50">    <span class="kw">def</span> process(<span class="va">self</span>, procs):</a>
+<a class="sourceLine" id="cb5-51" data-line-number="51">        <span class="co"># add processes to our queue</span></a>
+<a class="sourceLine" id="cb5-52" data-line-number="52">        <span class="va">self</span>.queue.extend(EventObject(i) <span class="cf">for</span> i <span class="kw">in</span> procs)</a>
+<a class="sourceLine" id="cb5-53" data-line-number="53">        </a>
+<a class="sourceLine" id="cb5-54" data-line-number="54">        <span class="cf">while</span> <span class="va">self</span>.queue:</a>
+<a class="sourceLine" id="cb5-55" data-line-number="55">            <span class="va">self</span>.run_once()</a>
+<a class="sourceLine" id="cb5-56" data-line-number="56">            <span class="co"># after running once, we should scan and</span></a>
+<a class="sourceLine" id="cb5-57" data-line-number="57">            <span class="co"># see if any names are now known</span></a>
+<a class="sourceLine" id="cb5-58" data-line-number="58">            <span class="cf">for</span> name <span class="kw">in</span> <span class="bu">tuple</span>(<span class="va">self</span>.waiting.keys()):</a>
+<a class="sourceLine" id="cb5-59" data-line-number="59">                <span class="cf">if</span> name <span class="kw">in</span> <span class="va">self</span>.namespace:</a>
+<a class="sourceLine" id="cb5-60" data-line-number="60">                    response <span class="op">=</span> <span class="va">self</span>.namespace[name]</a>
+<a class="sourceLine" id="cb5-61" data-line-number="61">                </a>
+<a class="sourceLine" id="cb5-62" data-line-number="62">                    <span class="co"># this name is now known, wake up any coros that were</span></a>
+<a class="sourceLine" id="cb5-63" data-line-number="63">                    <span class="co"># waiting on it and add them to the queue</span></a>
+<a class="sourceLine" id="cb5-64" data-line-number="64">                    woke_objs <span class="op">=</span> <span class="va">self</span>.waiting.pop(name)</a>
+<a class="sourceLine" id="cb5-65" data-line-number="65">                    </a>
+<a class="sourceLine" id="cb5-66" data-line-number="66">                    <span class="cf">for</span> obj <span class="kw">in</span> woke_objs:</a>
+<a class="sourceLine" id="cb5-67" data-line-number="67">                        obj.response <span class="op">=</span> response</a>
+<a class="sourceLine" id="cb5-68" data-line-number="68">                    </a>
+<a class="sourceLine" id="cb5-69" data-line-number="69">                    <span class="va">self</span>.queue.extend(woke_objs)</a></code></pre></div>
+<p>And now we can write some functions that encode a computation of setting or getting a variable:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb6-1" data-line-number="1"><span class="im">from</span> types <span class="im">import</span> coroutine</a>
+<a class="sourceLine" id="cb6-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb6-3" data-line-number="3"><span class="at">@coroutine</span></a>
+<a class="sourceLine" id="cb6-4" data-line-number="4"><span class="kw">def</span> set_var(name, value):</a>
+<a class="sourceLine" id="cb6-5" data-line-number="5">    <span class="cf">yield</span> RequestType.set_var, name, value</a>
+<a class="sourceLine" id="cb6-6" data-line-number="6"> </a>
+<a class="sourceLine" id="cb6-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb6-8" data-line-number="8"><span class="at">@coroutine</span></a>
+<a class="sourceLine" id="cb6-9" data-line-number="9"><span class="kw">def</span> get_var(name):</a>
+<a class="sourceLine" id="cb6-10" data-line-number="10">    <span class="cf">return</span> (<span class="cf">yield</span> RequestType.get_var, name)</a></code></pre></div>
+<p>Now we can write some programs:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb7-1" data-line-number="1"><span class="cf">async</span> <span class="kw">def</span> do_some_math():</a>
+<a class="sourceLine" id="cb7-2" data-line-number="2">    <span class="cf">await</span> set_var(<span class="st">&quot;one&quot;</span>, <span class="dv">1</span>)</a>
+<a class="sourceLine" id="cb7-3" data-line-number="3">    <span class="cf">await</span> set_var(<span class="st">&quot;two&quot;</span>, <span class="dv">2</span>)</a>
+<a class="sourceLine" id="cb7-4" data-line-number="4">    three <span class="op">=</span> <span class="cf">await</span> get_var(<span class="st">&quot;three&quot;</span>)</a>
+<a class="sourceLine" id="cb7-5" data-line-number="5">    four <span class="op">=</span> <span class="cf">await</span> get_var(<span class="st">&quot;four&quot;</span>)</a>
+<a class="sourceLine" id="cb7-6" data-line-number="6">    seven <span class="op">=</span> three <span class="op">+</span> four</a>
+<a class="sourceLine" id="cb7-7" data-line-number="7">    <span class="cf">await</span> set_var(<span class="st">&quot;seven&quot;</span>, seven)</a>
+<a class="sourceLine" id="cb7-8" data-line-number="8">    <span class="bu">print</span>(<span class="st">&quot;Done some math&quot;</span>)</a>
+<a class="sourceLine" id="cb7-9" data-line-number="9">    </a>
+<a class="sourceLine" id="cb7-10" data-line-number="10"><span class="cf">async</span> <span class="kw">def</span> do_some_more_math():</a>
+<a class="sourceLine" id="cb7-11" data-line-number="11">    one <span class="op">=</span> <span class="cf">await</span> get_var(<span class="st">&quot;one&quot;</span>)</a>
+<a class="sourceLine" id="cb7-12" data-line-number="12">    two <span class="op">=</span> <span class="cf">await</span> get_var(<span class="st">&quot;two&quot;</span>)</a>
+<a class="sourceLine" id="cb7-13" data-line-number="13">    three <span class="op">=</span> one <span class="op">+</span> two</a>
+<a class="sourceLine" id="cb7-14" data-line-number="14">    four <span class="op">=</span> three <span class="op">+</span> one</a>
+<a class="sourceLine" id="cb7-15" data-line-number="15">    <span class="cf">await</span> set_var(<span class="st">&quot;three&quot;</span>, three)</a>
+<a class="sourceLine" id="cb7-16" data-line-number="16">    <span class="cf">await</span> set_var(<span class="st">&quot;four&quot;</span>, four)</a>
+<a class="sourceLine" id="cb7-17" data-line-number="17">    seven <span class="op">=</span> <span class="cf">await</span> get_var(<span class="st">&quot;seven&quot;</span>)</a>
+<a class="sourceLine" id="cb7-18" data-line-number="18">    <span class="bu">print</span>(<span class="ss">f&quot;Done some more math, ended with: </span><span class="sc">{</span>seven<span class="sc">}</span><span class="ss">&quot;</span>)</a></code></pre></div>
+<p>To run these we would do the following:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb8-1" data-line-number="1">loop <span class="op">=</span> ELoop()</a>
+<a class="sourceLine" id="cb8-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb8-3" data-line-number="3">procs <span class="op">=</span> [do_some_math(), do_some_more_math()]</a>
+<a class="sourceLine" id="cb8-4" data-line-number="4"></a>
+<a class="sourceLine" id="cb8-5" data-line-number="5">loop.process(procs)</a></code></pre></div>
+<p>Running these gives the result:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb9-1" data-line-number="1">In [<span class="dv">17</span>]: loop.process(procs)</a>
+<a class="sourceLine" id="cb9-2" data-line-number="2">Done some math</a>
+<a class="sourceLine" id="cb9-3" data-line-number="3">Done some more math, ended <span class="cf">with</span>: <span class="dv">7</span></a></code></pre></div>
+<p>Pretty neat, huh?</p>
+
+        </div>
+        </div>
+        <div id="footer">
+        </div>
+    </body>
+</html>

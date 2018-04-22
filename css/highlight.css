@@ -1,0 +1,60 @@
+a.sourceLine { display: inline-block; line-height: 1.25; }
+a.sourceLine { pointer-events: none; color: inherit; text-decoration: inherit; }
+a.sourceLine:empty { height: 1.2em; position: absolute; }
+.source.SourceCode { overflow: visible; }
+.sourceCode.source.SourceCode { white-space: pre; position: relative; }
+div.source.SourceCode { margin: 1em 0; }
+pre.source.SourceCode { margin: 0; }
+@media screen {
+div.source.SourceCode { overflow: auto; }
+}
+@media print {
+.sourceCode.source.SourceCode { white-space: pre-wrap; }
+a.sourceLine { text-indent: -1em; padding-left: 1em; }
+}
+pre.numberSource a.sourceLine
+  { position: relative; }
+pre.numberSource a.sourceLine:empty
+  { position: absolute; }
+pre.numberSource a.sourceLine::before
+  { content: attr(data-line-number);
+    position: absolute; left: -5em; text-align: right; vertical-align: baseline;
+    border: none; pointer-events: all;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    background-color: #3b4252;
+    color: #3b4252;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #3b4252;  padding-left: 4px; }
+div.source.SourceCode
+  { color: #eceff4; background-color: #3b4252; }
+@media screen {
+a.sourceLine::before { text-decoration: underline; }
+}
+.sourceCode span. { color: #eceff4; } /* Normal */
+.sourceCode span.an { color: #d08770; } /* Annotation */
+.sourceCode span.at { color: #8fbcbb; } /* Attribute */
+.sourceCode span.bn { color: #b48ead; } /* BaseN */
+.sourceCode span.bu { color: #81a1c1; } /* BuiltIn */
+.sourceCode span.cf { color: #81a1c1; font-weight: bold; } /* ControlFlow */
+.sourceCode span.ch { color: #a3be8c; } /* Char */
+.sourceCode span.cn { color: #d8dee9; font-weight: bold; } /* Constant */
+.sourceCode span.co { color: #d8dee9; } /* Comment */
+.sourceCode span.cv { color: #d8dee9; } /* CommentVar */
+.sourceCode span.do { color: #d08770; } /* Documentation */
+.sourceCode span.dt { color: #b48ead; } /* DataType */
+.sourceCode span.dv { color: #b48ead; } /* DecVal */
+.sourceCode span.fl { color: #b48ead; } /* Float */
+.sourceCode span.fu { color: #88c0d0; } /* Function */
+.sourceCode span.im { color: #81a1c1; font-weight: bold; } /* Import */
+.sourceCode span.kw { color: #81a1c1; } /* Keyword */
+.sourceCode span.op { color: #81a1c1; } /* Operator */
+.sourceCode span.ot { color: #d8dee9; } /* Other */
+.sourceCode span.pp { color: #5e81ac; font-weight: bold; } /* Preprocessor */
+.sourceCode span.sc { color: #a3be8c; } /* SpecialChar */
+.sourceCode span.ss { color: #ebcb8b; } /* SpecialString */
+.sourceCode span.st { color: #a3be8c; } /* String */
+.sourceCode span.va { color: #d8dee9; } /* Variable */
+.sourceCode span.vs { color: #ebcb8b; } /* VerbatimString */

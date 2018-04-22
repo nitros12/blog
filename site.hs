@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 import           Data.Monoid (mappend)
 import           Hakyll
+import           Control.Applicative
 
 
 --------------------------------------------------------------------------------
@@ -15,11 +16,11 @@ main = hakyll $ do
         route   idRoute
         compile compressCssCompiler
 
-    -- match (fromList ["about.rst", "contact.markdown"]) $ do
-    --     route   $ setExtension "html"
-    --     compile $ pandocCompiler
-    --         >>= loadAndApplyTemplate "templates/default.html" defaultContext
-    --         >>= relativizeUrls
+    match (fromList ["about.md"]) $ do
+        route   $ setExtension "html"
+        compile $ pandocCompiler
+            >>= loadAndApplyTemplate "templates/default.html" siteCtx
+            >>= relativizeUrls
 
     match "posts/*" $ do
         route $ setExtension "html"
@@ -35,7 +36,7 @@ main = hakyll $ do
             let archiveCtx =
                     listField "posts" postCtx (return posts) `mappend`
                     constField "title" "Archives"            `mappend`
-                    defaultContext
+                    siteCtx
 
             makeItem ""
                 >>= loadAndApplyTemplate "templates/archive.html" archiveCtx
@@ -50,18 +51,29 @@ main = hakyll $ do
             let indexCtx =
                     listField "posts" postCtx (return posts) `mappend`
                     constField "title" "Home"                `mappend`
-                    defaultContext
+                    siteCtx
 
             getResourceBody
                 >>= applyAsTemplate indexCtx
                 >>= loadAndApplyTemplate "templates/default.html" indexCtx
                 >>= relativizeUrls
 
-    match "templates/*" $ compile templateBodyCompiler
+    match "templates/*" $ compile templateCompiler
 
 
 --------------------------------------------------------------------------------
 postCtx :: Context String
 postCtx =
     dateField "date" "%B %e, %Y" `mappend`
-    defaultContext
+    siteCtx
+
+siteCtx :: Context String
+siteCtx =
+        activeClassField `mappend`
+        defaultContext
+
+-- https://groups.google.com/forum/#!searchin/hakyll/if$20class/hakyll/WGDYRa3Xg-w/nMJZ4KT8OZUJ
+activeClassField :: Context a
+activeClassField = functionField "activeClass" $ \[p] _ -> do
+        path <- toFilePath <$> getUnderlying
+        return $ if path == p then "active" else path
